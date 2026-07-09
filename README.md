@@ -1,36 +1,42 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# World Cup Ticket Watch
 
-## Getting Started
+Personal price monitor for **FIFA World Cup 2026 Quarterfinal — Argentina vs Switzerland**
+(Sat Jul 11, 2026, 9:00 PM ET, Arrowhead Stadium, Kansas City).
 
-First, run the development server:
+Polls Ticketmaster Discovery + SeatGeek every 30 minutes (GitHub Actions → `/api/scan`),
+stores snapshots in Supabase, and pushes an ntfy.sh alert when a listing hits your target price.
+
+## Setup checklist
+
+1. **Supabase**: create a project, open the SQL editor, run `supabase/schema.sql`.
+2. **Local env**: `cp .env.local.example .env.local`, fill in every value.
+   Generate `CRON_SECRET` with `openssl rand -hex 32`.
+3. **ntfy**: install the ntfy app on your phone and subscribe to your `NTFY_TOPIC`.
+4. **Vercel → Project → Settings → Environment Variables**: add the same vars as `.env.local`
+   (`SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `NEXT_PUBLIC_SUPABASE_URL`,
+   `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `TICKETMASTER_API_KEY`, `SEATGEEK_CLIENT_ID`,
+   `NTFY_TOPIC`, `CRON_SECRET`, `MY_TARGET_PRICE`).
+5. **GitHub → repo → Settings → Secrets and variables → Actions**: add
+   - `APP_URL` — your deployed URL, e.g. `https://wc26-ticket-watch.vercel.app` (no trailing slash)
+   - `CRON_SECRET` — same value as in Vercel.
+6. Push to GitHub; Vercel auto-deploys. The `Ticket price scan` workflow then runs every
+   30 min (you can also trigger it manually from the Actions tab).
+
+## Test it
 
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+curl -X POST -H "Authorization: Bearer $CRON_SECRET" http://localhost:3000/api/scan
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Dashboard at `/` — current lowest price per source, history chart, editable target price,
+Scan Now button.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Notes
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
-
-## Learn More
-
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- Ticketmaster Discovery returns price *ranges* per event; SeatGeek returns event-level
+  stats (lowest price + listing count). Neither exposes individual seat listings publicly,
+  so alerts key off the lowest listed price per source.
+- Duplicate alerts for the same source/listing/price are suppressed for 6 hours
+  (`ALERT_DEDUPE_HOURS` in `lib/event.ts`).
+- The dashboard target price (stored in Supabase) overrides `MY_TARGET_PRICE`.
