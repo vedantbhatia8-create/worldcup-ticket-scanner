@@ -1,13 +1,11 @@
 import { supabaseAdmin } from "./supabase";
 import { fetchTicketmaster, fetchSeatGeek, type Listing, type SourceResult } from "./sources";
-import { scrapeSeatGeek } from "./seatgeek-scrape";
 import { ALERT_DEDUPE_HOURS, DEFAULT_TARGET_PRICE, EVENT } from "./event";
 
 export type ScanSummary = {
   event: string;
   scannedAt: string;
   targetPrice: number;
-  desiredQuantity: number;
   sources: { source: string; ok: boolean; error?: string; eventsMatched: number; listingsFound: number }[];
   snapshotsStored: number;
   belowTarget: { source: string; listing: string; price: number; url: string | null }[];
@@ -41,28 +39,14 @@ export async function setTargetPrice(price: number): Promise<void> {
   await setConfigValue("target_price", String(price));
 }
 
-// How many adjacent seats to look for. Only the SeatGeek page scrape can
-// actually filter by seats-together; API sources price single tickets.
-export async function getDesiredQuantity(): Promise<number> {
-  const fromDb = await getConfigNumber("desired_quantity");
-  return fromDb !== null && fromDb >= 1 ? Math.floor(fromDb) : 1;
-}
-
-export async function setDesiredQuantity(qty: number): Promise<void> {
-  await setConfigValue("desired_quantity", String(Math.max(1, Math.floor(qty))));
-}
-
 export async function runScan(): Promise<ScanSummary> {
   const db = supabaseAdmin();
   const scannedAt = new Date().toISOString();
-  const desiredQuantity = await getDesiredQuantity();
 
-  // Each source is independently caught: one failing (network error, block,
-  // page change) must not take down the others.
+  // Each source is independently caught: one failing API must not take down the other.
   const results: SourceResult[] = await Promise.all([
     safeSource("ticketmaster", fetchTicketmaster),
     safeSource("seatgeek", fetchSeatGeek),
-    safeSource("seatgeek-scrape", () => scrapeSeatGeek(desiredQuantity)),
   ]);
   const listings: Listing[] = results.flatMap((r) => r.listings);
 
@@ -111,7 +95,7 @@ export async function runScan(): Promise<ScanSummary> {
       alertsSkipped++;
       continue;
     }
-    await sendNtfyAlert(hit, targetPrice, desiredQuantity);
+    await sendNtfyAlert(hit, targetPrice);
     const { error } = await db.from("alerts_sent").insert({ snapshot_id: hit.id, sent_at: new Date().toISOString() });
     if (error) throw new Error(`Failed to record alert: ${error.message}`);
     alreadyAlerted.add(key);
@@ -122,7 +106,6 @@ export async function runScan(): Promise<ScanSummary> {
     event: EVENT.name,
     scannedAt,
     targetPrice,
-    desiredQuantity,
     sources: results.map((r) => ({
       source: r.source,
       ok: r.ok,
@@ -156,8 +139,7 @@ async function safeSource(
 
 async function sendNtfyAlert(
   hit: { source: string; listing: string; price: number; url: string | null },
-  targetPrice: number,
-  desiredQuantity: number
+  targetPrice: number
 ): Promise<void> {
   const topic = process.env.NTFY_TOPIC;
   if (!topic) throw new Error("NTFY_TOPIC is not set");
@@ -169,14 +151,7 @@ async function sendNtfyAlert(
   };
   if (hit.url) headers.Click = hit.url;
 
-  // Only the page scrape filters by seats-together; API prices are per ticket.
-  const qtyNote =
-    desiredQuantity > 1
-      ? hit.source === "seatgeek-scrape"
-        ? `\nPrice is for ${desiredQuantity} seats together (per ticket)`
-        : `\nWanted: ${desiredQuantity} together — verify availability, this source prices single tickets`
-      : "";
-  const body = `${hit.listing}\nSource: ${hit.source}\nPrice: $${hit.price}${qtyNote}${hit.url ? `\nBuy: ${hit.url}` : ""}`;
+  const body = `${hit.listing}\nSource: ${hit.source}\nPrice: $${hit.price}${hit.url ? `\nBuy: ${hit.url}` : ""}`;
   const res = await fetch(`https://ntfy.sh/${encodeURIComponent(topic)}`, {
     method: "POST",
     headers,

@@ -1,5 +1,5 @@
 import { supabaseAdmin } from "@/lib/supabase";
-import { getTargetPrice, getDesiredQuantity } from "@/lib/scan";
+import { getTargetPrice } from "@/lib/scan";
 import { EVENT } from "@/lib/event";
 import { updateSettingsAction } from "./actions";
 import ScanNowButton from "@/components/ScanNowButton";
@@ -16,34 +16,31 @@ type Snapshot = {
   fetched_at: string;
 };
 
-const SOURCES = ["ticketmaster", "seatgeek", "seatgeek-scrape"] as const;
+const SOURCES = ["ticketmaster", "seatgeek"] as const;
 const SOURCE_LABEL: Record<string, string> = {
   ticketmaster: "Ticketmaster",
   seatgeek: "SeatGeek (API)",
-  "seatgeek-scrape": "SeatGeek (page)",
 };
 
 export default async function Dashboard() {
   let snapshots: Snapshot[] = [];
   let targetPrice: number | null = null;
-  let desiredQuantity = 1;
   let loadError: string | null = null;
 
   try {
     const db = supabaseAdmin();
-    const [{ data, error }, target, qty] = await Promise.all([
+    const [{ data, error }, target] = await Promise.all([
       db
         .from("price_snapshots")
         .select("id, source, listing, price, quantity_available, url, fetched_at")
+        .in("source", [...SOURCES])
         .order("fetched_at", { ascending: false })
         .limit(500),
       getTargetPrice(),
-      getDesiredQuantity(),
     ]);
     if (error) throw new Error(error.message);
     snapshots = (data ?? []) as Snapshot[];
     targetPrice = target;
-    desiredQuantity = qty;
   } catch (err) {
     loadError = err instanceof Error ? err.message : String(err);
   }
@@ -112,7 +109,7 @@ export default async function Dashboard() {
         ))}
 
         <div className="card">
-          <h2>Target price &amp; seats</h2>
+          <h2>Target price</h2>
           <form action={updateSettingsAction} className="target-form">
             <span className="dollar">$</span>
             <input
@@ -123,24 +120,11 @@ export default async function Dashboard() {
               defaultValue={targetPrice ?? ""}
               required
             />
-            <label className="qty-label">
-              seats together
-              <input
-                name="desired_quantity"
-                type="number"
-                step="1"
-                min="1"
-                max="10"
-                defaultValue={desiredQuantity}
-                required
-              />
-            </label>
             <button className="btn" type="submit">Save</button>
           </form>
           <p className="meta">
-            Alerts fire via ntfy when a listing is at or below the target, per ticket.
-            Seats-together filtering only applies to the SeatGeek page source — API
-            sources price single tickets.
+            Alerts fire via ntfy when an official API reports a price at or below
+            the target, per ticket.
           </p>
           <ScanNowButton />
         </div>
@@ -206,7 +190,6 @@ function PriceChart({
   const colors: Record<string, string> = {
     ticketmaster: "#1a7f4b",
     seatgeek: "#2563eb",
-    "seatgeek-scrape": "#7c3aed",
   };
 
   return (
@@ -236,7 +219,6 @@ function PriceChart({
       )}
       <text x={PAD} y={14} fontSize="11" fill="#1a7f4b">— Ticketmaster</text>
       <text x={PAD + 110} y={14} fontSize="11" fill="#2563eb">— SeatGeek (API)</text>
-      <text x={PAD + 230} y={14} fontSize="11" fill="#7c3aed">— SeatGeek (page)</text>
     </svg>
   );
 }

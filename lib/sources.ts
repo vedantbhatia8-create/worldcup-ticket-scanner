@@ -1,6 +1,6 @@
 import { EVENT } from "./event";
 
-export type SourceName = "ticketmaster" | "seatgeek" | "seatgeek-scrape";
+export type SourceName = "ticketmaster" | "seatgeek";
 
 export type Listing = {
   source: SourceName;
@@ -29,11 +29,13 @@ export async function fetchTicketmaster(): Promise<SourceResult> {
 
   const params = new URLSearchParams({
     apikey: apiKey,
-    keyword: "world cup",
+    keyword: "Argentina Switzerland",
     city: EVENT.city,
     startDateTime: EVENT.startDateTimeUtc,
     endDateTime: EVENT.endDateTimeUtc,
-    size: "20",
+    classificationName: "soccer",
+    sort: "date,asc",
+    size: "50",
   });
 
   const res = await fetch(
@@ -47,13 +49,12 @@ export async function fetchTicketmaster(): Promise<SourceResult> {
   const data = await res.json();
   const events: any[] = data?._embedded?.events ?? [];
 
-  // Prefer the event at Arrowhead; fall back to everything matched that day.
-  const atVenue = events.filter((e) =>
-    (e?._embedded?.venues ?? []).some((v: any) =>
-      String(v?.name ?? "").toLowerCase().includes(EVENT.venueKeyword.toLowerCase())
-    )
-  );
-  const matched = atVenue.length > 0 ? atVenue : events;
+  const matched = events.filter((event) => isTargetEvent({
+    title: event?.name,
+    venue: event?._embedded?.venues?.[0]?.name,
+    city: event?._embedded?.venues?.[0]?.city?.name,
+    localDate: event?.dates?.start?.localDate,
+  }));
 
   const listings: Listing[] = [];
   for (const ev of matched) {
@@ -90,11 +91,11 @@ export async function fetchSeatGeek(): Promise<SourceResult> {
 
   const params = new URLSearchParams({
     client_id: clientId,
-    q: "world cup",
+    q: "Argentina Switzerland World Cup",
     "venue.city": EVENT.city,
     "datetime_local.gte": EVENT.localDate,
     "datetime_local.lte": "2026-07-12",
-    per_page: "20",
+    per_page: "50",
   });
 
   const res = await fetch(`https://api.seatgeek.com/2/events?${params}`, {
@@ -107,10 +108,12 @@ export async function fetchSeatGeek(): Promise<SourceResult> {
   const data = await res.json();
   const events: any[] = data?.events ?? [];
 
-  const atVenue = events.filter((e) =>
-    String(e?.venue?.name ?? "").toLowerCase().includes(EVENT.venueKeyword.toLowerCase())
-  );
-  const matched = atVenue.length > 0 ? atVenue : events;
+  const matched = events.filter((event) => isTargetEvent({
+    title: event?.title,
+    venue: event?.venue?.name,
+    city: event?.venue?.city,
+    localDate: String(event?.datetime_local ?? "").slice(0, 10),
+  }));
 
   const listings: Listing[] = [];
   for (const ev of matched) {
@@ -138,4 +141,26 @@ async function safeText(res: Response): Promise<string> {
   } catch {
     return "<no body>";
   }
+}
+
+function isTargetEvent({
+  title,
+  venue,
+  city,
+  localDate,
+}: {
+  title: unknown;
+  venue: unknown;
+  city: unknown;
+  localDate: unknown;
+}): boolean {
+  const haystack = `${title ?? ""} ${venue ?? ""} ${city ?? ""}`.toLowerCase();
+  const hasTeams = haystack.includes("argentina") && haystack.includes("switzerland");
+  const hasWorldCupQuarterfinal =
+    haystack.includes("world cup") && /quarter[\s-]?final/.test(haystack);
+  return (
+    String(localDate) === EVENT.localDate &&
+    haystack.includes(EVENT.venueKeyword.toLowerCase()) &&
+    (hasTeams || hasWorldCupQuarterfinal)
+  );
 }

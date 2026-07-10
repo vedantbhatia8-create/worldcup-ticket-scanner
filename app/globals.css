@@ -106,18 +106,6 @@ a {
   flex-wrap: wrap;
 }
 
-.qty-label {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 13px;
-  color: #4b6355;
-}
-
-.qty-label input {
-  width: 64px !important;
-}
-
 .target-form input {
   width: 110px;
   padding: 8px;

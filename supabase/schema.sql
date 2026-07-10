@@ -2,7 +2,7 @@
 
 create table if not exists price_snapshots (
   id bigint generated always as identity primary key,
-  source text not null check (source in ('ticketmaster', 'seatgeek', 'seatgeek-scrape')),
+  source text not null check (source in ('ticketmaster', 'seatgeek')),
   listing text not null,
   price numeric(10, 2) not null,
   quantity_available integer,
@@ -31,7 +31,7 @@ create table if not exists app_config (
 );
 
 insert into app_config (key, value)
-values ('target_price', '1800'), ('desired_quantity', '3')
+values ('target_price', '500')
 on conflict (key) do nothing;
 
 -- The app uses the service role key only (server-side), so RLS stays enabled
