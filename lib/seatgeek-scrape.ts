@@ -1,4 +1,7 @@
-import { chromium as playwright, type Browser } from "playwright-core";
+// playwright-core is imported lazily inside launchBrowser so that a broken or
+// missing Playwright install can only fail this source — a top-level import
+// here would crash every route that transitively imports the scan module.
+import type { Browser, Page } from "playwright-core";
 import type { SourceResult } from "./sources";
 
 // SeatGeek event page scraper (no API key needed). Tagged 'seatgeek-scrape' to
@@ -76,6 +79,7 @@ export async function scrapeSeatGeek(desiredQuantity = 1): Promise<SourceResult>
 }
 
 async function launchBrowser(): Promise<Browser> {
+  const { chromium: playwright } = await import("playwright-core");
   if (process.env.VERCEL) {
     const chromium = (await import("@sparticuz/chromium")).default;
     return playwright.launch({
@@ -88,7 +92,7 @@ async function launchBrowser(): Promise<Browser> {
   return playwright.launch({ channel: "chrome", headless: true });
 }
 
-async function extractFromUrl(page: import("playwright-core").Page, url: string): Promise<number | null> {
+async function extractFromUrl(page: Page, url: string): Promise<number | null> {
   const res = await page.goto(url, { waitUntil: "domcontentloaded", timeout: 25000 }).catch(() => null);
   if (!res || res.status() >= 400) return null;
   await page.waitForTimeout(2500); // let client-side price data hydrate
@@ -129,7 +133,7 @@ async function extractFromUrl(page: import("playwright-core").Page, url: string)
   return null;
 }
 
-async function findEventViaSearch(page: import("playwright-core").Page): Promise<string | null> {
+async function findEventViaSearch(page: Page): Promise<string | null> {
   const res = await page.goto(SEARCH_URL, { waitUntil: "domcontentloaded", timeout: 25000 }).catch(() => null);
   if (!res || res.status() >= 400) return null;
   await page.waitForTimeout(2000);
