@@ -13,7 +13,7 @@ const SEARCH_URL = "https://seatgeek.com/search?search=world%20cup%20quarterfina
 const UA =
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36";
 
-export async function scrapeSeatGeek(): Promise<SourceResult> {
+export async function scrapeSeatGeek(desiredQuantity = 1): Promise<SourceResult> {
   let browser: Browser | null = null;
   try {
     browser = await launchBrowser();
@@ -30,7 +30,11 @@ export async function scrapeSeatGeek(): Promise<SourceResult> {
     });
     const page = await context.newPage();
 
-    const eventUrl = process.env.SEATGEEK_EVENT_URL || DEFAULT_EVENT_URL;
+    // SeatGeek's quantity param filters listings to N seats together.
+    const withQty = (url: string) =>
+      desiredQuantity > 1 ? `${url}${url.includes("?") ? "&" : "?"}quantity=${desiredQuantity}` : url;
+
+    const eventUrl = withQty(process.env.SEATGEEK_EVENT_URL || DEFAULT_EVENT_URL);
     let price = await extractFromUrl(page, eventUrl);
     let finalUrl = eventUrl;
 
@@ -38,8 +42,8 @@ export async function scrapeSeatGeek(): Promise<SourceResult> {
       // Direct URL failed (slug changed?) — try finding the event via search.
       const found = await findEventViaSearch(page);
       if (found) {
-        finalUrl = found;
-        price = await extractFromUrl(page, found);
+        finalUrl = withQty(found);
+        price = await extractFromUrl(page, finalUrl);
       }
     }
 
@@ -54,9 +58,12 @@ export async function scrapeSeatGeek(): Promise<SourceResult> {
       listings: [
         {
           source: "seatgeek-scrape",
-          listing: "Argentina vs Switzerland (SeatGeek page) — lowest listing",
+          listing:
+            desiredQuantity > 1
+              ? `Argentina vs Switzerland (SeatGeek page) — lowest for ${desiredQuantity} together`
+              : "Argentina vs Switzerland (SeatGeek page) — lowest listing",
           price,
-          quantity_available: null,
+          quantity_available: desiredQuantity > 1 ? desiredQuantity : null,
           url: finalUrl,
         },
       ],

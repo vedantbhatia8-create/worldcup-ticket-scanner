@@ -1,7 +1,7 @@
 import { supabaseAdmin } from "@/lib/supabase";
-import { getTargetPrice } from "@/lib/scan";
+import { getTargetPrice, getDesiredQuantity } from "@/lib/scan";
 import { EVENT } from "@/lib/event";
-import { updateTargetPriceAction } from "./actions";
+import { updateSettingsAction } from "./actions";
 import ScanNowButton from "@/components/ScanNowButton";
 
 export const dynamic = "force-dynamic";
@@ -26,21 +26,24 @@ const SOURCE_LABEL: Record<string, string> = {
 export default async function Dashboard() {
   let snapshots: Snapshot[] = [];
   let targetPrice: number | null = null;
+  let desiredQuantity = 1;
   let loadError: string | null = null;
 
   try {
     const db = supabaseAdmin();
-    const [{ data, error }, target] = await Promise.all([
+    const [{ data, error }, target, qty] = await Promise.all([
       db
         .from("price_snapshots")
         .select("id, source, listing, price, quantity_available, url, fetched_at")
         .order("fetched_at", { ascending: false })
         .limit(500),
       getTargetPrice(),
+      getDesiredQuantity(),
     ]);
     if (error) throw new Error(error.message);
     snapshots = (data ?? []) as Snapshot[];
     targetPrice = target;
+    desiredQuantity = qty;
   } catch (err) {
     loadError = err instanceof Error ? err.message : String(err);
   }
@@ -109,8 +112,8 @@ export default async function Dashboard() {
         ))}
 
         <div className="card">
-          <h2>Target price</h2>
-          <form action={updateTargetPriceAction} className="target-form">
+          <h2>Target price &amp; seats</h2>
+          <form action={updateSettingsAction} className="target-form">
             <span className="dollar">$</span>
             <input
               name="target_price"
@@ -120,9 +123,25 @@ export default async function Dashboard() {
               defaultValue={targetPrice ?? ""}
               required
             />
+            <label className="qty-label">
+              seats together
+              <input
+                name="desired_quantity"
+                type="number"
+                step="1"
+                min="1"
+                max="10"
+                defaultValue={desiredQuantity}
+                required
+              />
+            </label>
             <button className="btn" type="submit">Save</button>
           </form>
-          <p className="meta">Alerts fire via ntfy when a listing is at or below this, per ticket.</p>
+          <p className="meta">
+            Alerts fire via ntfy when a listing is at or below the target, per ticket.
+            Seats-together filtering only applies to the SeatGeek page source — API
+            sources price single tickets.
+          </p>
           <ScanNowButton />
         </div>
       </section>

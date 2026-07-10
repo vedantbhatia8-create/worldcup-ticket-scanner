@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { runScan, setTargetPrice, type ScanSummary } from "@/lib/scan";
+import { runScan, setTargetPrice, setDesiredQuantity, type ScanSummary } from "@/lib/scan";
 
 export async function scanNowAction(): Promise<ScanSummary | { error: string }> {
   try {
@@ -13,10 +13,10 @@ export async function scanNowAction(): Promise<ScanSummary | { error: string }> 
   }
 }
 
-export async function updateTargetPriceAction(formData: FormData): Promise<void> {
-  const raw = formData.get("target_price");
-  const price = Number(raw);
-  if (!Number.isFinite(price) || price <= 0) return;
-  await setTargetPrice(price);
+export async function updateSettingsAction(formData: FormData): Promise<void> {
+  const price = Number(formData.get("target_price"));
+  const qty = Number(formData.get("desired_quantity"));
+  if (Number.isFinite(price) && price > 0) await setTargetPrice(price);
+  if (Number.isFinite(qty) && qty >= 1) await setDesiredQuantity(qty);
   revalidatePath("/");
 }
