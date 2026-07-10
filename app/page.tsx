@@ -16,10 +16,11 @@ type Snapshot = {
   fetched_at: string;
 };
 
-const SOURCES = ["ticketmaster", "seatgeek"] as const;
+const SOURCES = ["ticketmaster", "seatgeek", "seatgeek-scrape"] as const;
 const SOURCE_LABEL: Record<string, string> = {
   ticketmaster: "Ticketmaster",
-  seatgeek: "SeatGeek",
+  seatgeek: "SeatGeek (API)",
+  "seatgeek-scrape": "SeatGeek (page)",
 };
 
 export default async function Dashboard() {
@@ -183,7 +184,11 @@ function PriceChart({
   const x = (t: number) => (tMax === tMin ? W / 2 : PAD + ((t - tMin) / (tMax - tMin)) * (W - 2 * PAD));
   const y = (p: number) => (pMax === pMin ? H / 2 : H - PAD - ((p - pMin) / (pMax - pMin)) * (H - 2 * PAD));
 
-  const colors: Record<string, string> = { ticketmaster: "#1a7f4b", seatgeek: "#2563eb" };
+  const colors: Record<string, string> = {
+    ticketmaster: "#1a7f4b",
+    seatgeek: "#2563eb",
+    "seatgeek-scrape": "#7c3aed",
+  };
 
   return (
     <svg viewBox={`0 0 ${W} ${H}`} className="chart" role="img" aria-label="Price history chart">
@@ -211,7 +216,8 @@ function PriceChart({
         ) : null
       )}
       <text x={PAD} y={14} fontSize="11" fill="#1a7f4b">— Ticketmaster</text>
-      <text x={PAD + 110} y={14} fontSize="11" fill="#2563eb">— SeatGeek</text>
+      <text x={PAD + 110} y={14} fontSize="11" fill="#2563eb">— SeatGeek (API)</text>
+      <text x={PAD + 230} y={14} fontSize="11" fill="#7c3aed">— SeatGeek (page)</text>
     </svg>
   );
 }

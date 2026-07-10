@@ -2,7 +2,7 @@
 
 create table if not exists price_snapshots (
   id bigint generated always as identity primary key,
-  source text not null check (source in ('ticketmaster', 'seatgeek')),
+  source text not null check (source in ('ticketmaster', 'seatgeek', 'seatgeek-scrape')),
   listing text not null,
   price numeric(10, 2) not null,
   quantity_available integer,

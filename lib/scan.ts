@@ -1,5 +1,6 @@
 import { supabaseAdmin } from "./supabase";
 import { fetchTicketmaster, fetchSeatGeek, type Listing, type SourceResult } from "./sources";
+import { scrapeSeatGeek } from "./seatgeek-scrape";
 import { ALERT_DEDUPE_HOURS, DEFAULT_TARGET_PRICE, EVENT } from "./event";
 
 export type ScanSummary = {
@@ -39,8 +40,13 @@ export async function runScan(): Promise<ScanSummary> {
   const db = supabaseAdmin();
   const scannedAt = new Date().toISOString();
 
-  const [tm, sg] = await Promise.all([fetchTicketmaster(), fetchSeatGeek()]);
-  const results: SourceResult[] = [tm, sg];
+  // Each source is independently caught: one failing (network error, block,
+  // page change) must not take down the others.
+  const results: SourceResult[] = await Promise.all([
+    safeSource("ticketmaster", fetchTicketmaster),
+    safeSource("seatgeek", fetchSeatGeek),
+    safeSource("seatgeek-scrape", scrapeSeatGeek),
+  ]);
   const listings: Listing[] = results.flatMap((r) => r.listings);
 
   // Store one snapshot row per listing found.
@@ -111,6 +117,23 @@ export async function runScan(): Promise<ScanSummary> {
     alertsSent,
     alertsSkippedAsDuplicates: alertsSkipped,
   };
+}
+
+async function safeSource(
+  source: SourceResult["source"],
+  fn: () => Promise<SourceResult>
+): Promise<SourceResult> {
+  try {
+    return await fn();
+  } catch (err) {
+    return {
+      source,
+      ok: false,
+      error: err instanceof Error ? err.message : String(err),
+      eventsMatched: 0,
+      listings: [],
+    };
+  }
 }
 
 async function sendNtfyAlert(

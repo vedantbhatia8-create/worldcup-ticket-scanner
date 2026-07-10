@@ -1,7 +1,9 @@
 import { EVENT } from "./event";
 
+export type SourceName = "ticketmaster" | "seatgeek" | "seatgeek-scrape";
+
 export type Listing = {
-  source: "ticketmaster" | "seatgeek";
+  source: SourceName;
   listing: string;
   price: number;
   quantity_available: number | null;
@@ -9,7 +11,7 @@ export type Listing = {
 };
 
 export type SourceResult = {
-  source: "ticketmaster" | "seatgeek";
+  source: SourceName;
   ok: boolean;
   error?: string;
   eventsMatched: number;
