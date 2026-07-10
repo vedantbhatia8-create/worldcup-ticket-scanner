@@ -74,6 +74,8 @@ export async function fetchTicketmaster(): Promise<SourceResult> {
   }));
 
   const listings: Listing[] = [];
+  let webFallbackTried = false;
+  let webFallbackError: string | undefined;
   for (const ev of matched) {
     const ranges: any[] = ev?.priceRanges ?? [];
     for (const pr of ranges) {
@@ -86,8 +88,16 @@ export async function fetchTicketmaster(): Promise<SourceResult> {
         url: ev.url ?? null,
       });
     }
-    // Event found but no price data yet — record that we saw it, at price 0? No:
-    // skip instead; a zero row would pollute min-price stats.
+
+    if (ranges.length === 0 && ev?.url) {
+      webFallbackTried = true;
+      const fallback = await fetchTicketmasterWebPrice(ev.url, ev.name);
+      if (fallback.listing) {
+        listings.push(fallback.listing);
+      } else if (fallback.error) {
+        webFallbackError = fallback.error;
+      }
+    }
   }
 
   const matchedWithoutPrices = matched.length - listings.length;
@@ -100,9 +110,11 @@ export async function fetchTicketmaster(): Promise<SourceResult> {
       matched.length === 0
         ? "Ticketmaster API returned events, but none matched the target date/venue."
         : listings.length === 0
-          ? "Target event matched, but Ticketmaster Discovery did not expose priceRanges yet."
+          ? webFallbackTried
+            ? `Target event matched, but Discovery had no priceRanges and web fallback found no price${webFallbackError ? ` (${webFallbackError})` : ""}.`
+            : "Target event matched, but Ticketmaster Discovery did not expose priceRanges yet."
           : matchedWithoutPrices > 0
-            ? `${matchedWithoutPrices} matched event(s) had no priceRanges.`
+            ? `${matchedWithoutPrices} matched event(s) had no Discovery priceRanges; web fallback was ${webFallbackTried ? "tried" : "not needed"}.`
             : undefined,
     listings,
   };
@@ -185,6 +197,69 @@ async function safeText(res: Response): Promise<string> {
   } catch {
     return "<no body>";
   }
+}
+
+async function fetchTicketmasterWebPrice(
+  url: string,
+  eventName: string
+): Promise<{ listing?: Listing; error?: string }> {
+  try {
+    const res = await fetch(url, {
+      cache: "no-store",
+      headers: {
+        "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "accept-language": "en-US,en;q=0.9",
+        "user-agent":
+          "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
+      },
+    });
+
+    if (!res.ok) {
+      return { error: `Ticketmaster web HTTP ${res.status}` };
+    }
+
+    const html = await res.text();
+    if (/datadome|captcha|blocked|access denied|pardon the interruption/i.test(html)) {
+      return { error: "blocked by Ticketmaster bot protection" };
+    }
+
+    const price = lowestPlausiblePrice(html);
+    if (price === null) return { error: "no parseable price in Ticketmaster page HTML" };
+
+    return {
+      listing: {
+        source: "ticketmaster",
+        listing: `${eventName} — web page lowest parsed price`,
+        price,
+        quantity_available: null,
+        url,
+      },
+    };
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+function lowestPlausiblePrice(html: string): number | null {
+  const candidates: number[] = [];
+  const patterns = [
+    /"min(?:imum)?Price"\s*:\s*"?(\d+(?:\.\d{1,2})?)"?/gi,
+    /"lowestPrice"\s*:\s*"?(\d+(?:\.\d{1,2})?)"?/gi,
+    /"price"\s*:\s*"?(\d+(?:\.\d{1,2})?)"?/gi,
+    /\$\s*([1-9]\d{1,4}(?:,\d{3})*(?:\.\d{2})?)/g,
+  ];
+
+  for (const pattern of patterns) {
+    for (const match of html.matchAll(pattern)) {
+      const value = Number(String(match[1]).replace(/,/g, ""));
+      if (Number.isFinite(value) && value >= 20 && value <= 50000) {
+        candidates.push(value);
+      }
+    }
+  }
+
+  if (candidates.length === 0) return null;
+  return Math.min(...candidates);
 }
 
 function isTargetEvent({
