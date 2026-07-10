@@ -18,10 +18,17 @@ export default function ScanNowButton() {
       } else {
         const found = result.snapshotsStored;
         const alerts = result.alertsSent;
+        const sourceDetails = result.sources
+          .map((source) => {
+            const status = source.ok ? source.note ?? "OK" : source.error ?? "failed";
+            return `${source.source}: ${source.eventsMatched} matched, ${source.listingsFound} prices (${status})`;
+          })
+          .join(" · ");
         setStatus(
           `Scanned at ${new Date(result.scannedAt).toLocaleTimeString()} — ` +
             `${found} snapshot${found === 1 ? "" : "s"} stored, ` +
-            `${result.belowTarget.length} at/below target, ${alerts} alert${alerts === 1 ? "" : "s"} sent.`
+            `${result.belowTarget.length} at/below target, ${alerts} alert${alerts === 1 ? "" : "s"} sent. ` +
+            sourceDetails
         );
         router.refresh();
       }

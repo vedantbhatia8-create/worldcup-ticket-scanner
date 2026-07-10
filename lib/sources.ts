@@ -14,6 +14,8 @@ export type SourceResult = {
   source: SourceName;
   ok: boolean;
   error?: string;
+  candidatesFound: number;
+  note?: string;
   eventsMatched: number;
   listings: Listing[];
 };
@@ -27,27 +29,42 @@ export async function fetchTicketmaster(): Promise<SourceResult> {
     return tmFail("TICKETMASTER_API_KEY is not set");
   }
 
-  const params = new URLSearchParams({
-    apikey: apiKey,
-    keyword: "Argentina Switzerland",
-    city: EVENT.city,
-    startDateTime: EVENT.startDateTimeUtc,
-    endDateTime: EVENT.endDateTimeUtc,
-    classificationName: "soccer",
-    sort: "date,asc",
-    size: "50",
-  });
+  const eventsById = new Map<string, any>();
+  const searches = [
+    "Argentina Switzerland",
+    "FIFA World Cup",
+    "World Cup Quarterfinal",
+    "World Cup Quarter Final",
+    "Kansas City World Cup",
+  ];
 
-  const res = await fetch(
-    `https://app.ticketmaster.com/discovery/v2/events.json?${params}`,
-    { cache: "no-store" }
-  );
-  if (!res.ok) {
-    return tmFail(`Ticketmaster HTTP ${res.status}: ${await safeText(res)}`);
+  for (const keyword of searches) {
+    const params = new URLSearchParams({
+      apikey: apiKey,
+      keyword,
+      city: EVENT.city,
+      startDateTime: EVENT.startDateTimeUtc,
+      endDateTime: EVENT.endDateTimeUtc,
+      sort: "date,asc",
+      size: "50",
+    });
+
+    const res = await fetch(
+      `https://app.ticketmaster.com/discovery/v2/events.json?${params}`,
+      { cache: "no-store" }
+    );
+    if (!res.ok) {
+      return tmFail(`Ticketmaster HTTP ${res.status}: ${await safeText(res)}`);
+    }
+
+    const data = await res.json();
+    const events: any[] = data?._embedded?.events ?? [];
+    for (const event of events) {
+      eventsById.set(String(event?.id ?? event?.url ?? event?.name), event);
+    }
   }
 
-  const data = await res.json();
-  const events: any[] = data?._embedded?.events ?? [];
+  const events = [...eventsById.values()];
 
   const matched = events.filter((event) => isTargetEvent({
     title: event?.name,
@@ -73,11 +90,26 @@ export async function fetchTicketmaster(): Promise<SourceResult> {
     // skip instead; a zero row would pollute min-price stats.
   }
 
-  return { source: "ticketmaster", ok: true, eventsMatched: matched.length, listings };
+  const matchedWithoutPrices = matched.length - listings.length;
+  return {
+    source: "ticketmaster",
+    ok: true,
+    candidatesFound: events.length,
+    eventsMatched: matched.length,
+    note:
+      matched.length === 0
+        ? "Ticketmaster API returned events, but none matched the target date/venue."
+        : listings.length === 0
+          ? "Target event matched, but Ticketmaster Discovery did not expose priceRanges yet."
+          : matchedWithoutPrices > 0
+            ? `${matchedWithoutPrices} matched event(s) had no priceRanges.`
+            : undefined,
+    listings,
+  };
 }
 
 function tmFail(error: string): SourceResult {
-  return { source: "ticketmaster", ok: false, error, eventsMatched: 0, listings: [] };
+  return { source: "ticketmaster", ok: false, error, candidatesFound: 0, eventsMatched: 0, listings: [] };
 }
 
 // --- SeatGeek API ------------------------------------------------------------
@@ -128,11 +160,23 @@ export async function fetchSeatGeek(): Promise<SourceResult> {
     });
   }
 
-  return { source: "seatgeek", ok: true, eventsMatched: matched.length, listings };
+  return {
+    source: "seatgeek",
+    ok: true,
+    candidatesFound: events.length,
+    eventsMatched: matched.length,
+    note:
+      matched.length === 0
+        ? "SeatGeek API returned events, but none matched the target date/venue."
+        : listings.length === 0
+          ? "Target event matched, but SeatGeek did not expose a lowest_price yet."
+          : undefined,
+    listings,
+  };
 }
 
 function sgFail(error: string): SourceResult {
-  return { source: "seatgeek", ok: false, error, eventsMatched: 0, listings: [] };
+  return { source: "seatgeek", ok: false, error, candidatesFound: 0, eventsMatched: 0, listings: [] };
 }
 
 async function safeText(res: Response): Promise<string> {

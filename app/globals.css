@@ -66,6 +66,10 @@ td.hit {
   font-weight: 700;
 }
 
+td.bad {
+  color: #b91c1c;
+}
+
 .meta {
   font-size: 13px;
   color: #62796c;

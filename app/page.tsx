@@ -1,5 +1,5 @@
 import { supabaseAdmin } from "@/lib/supabase";
-import { getTargetPrice } from "@/lib/scan";
+import { getLastScanSummary, getTargetPrice, type ScanSummary } from "@/lib/scan";
 import { EVENT } from "@/lib/event";
 import { updateSettingsAction } from "./actions";
 import ScanNowButton from "@/components/ScanNowButton";
@@ -25,11 +25,12 @@ const SOURCE_LABEL: Record<string, string> = {
 export default async function Dashboard() {
   let snapshots: Snapshot[] = [];
   let targetPrice: number | null = null;
+  let lastScan: ScanSummary | null = null;
   let loadError: string | null = null;
 
   try {
     const db = supabaseAdmin();
-    const [{ data, error }, target] = await Promise.all([
+    const [{ data, error }, target, scan] = await Promise.all([
       db
         .from("price_snapshots")
         .select("id, source, listing, price, quantity_available, url, fetched_at")
@@ -37,10 +38,12 @@ export default async function Dashboard() {
         .order("fetched_at", { ascending: false })
         .limit(500),
       getTargetPrice(),
+      getLastScanSummary(),
     ]);
     if (error) throw new Error(error.message);
     snapshots = (data ?? []) as Snapshot[];
     targetPrice = target;
+    lastScan = scan;
   } catch (err) {
     loadError = err instanceof Error ? err.message : String(err);
   }
@@ -129,6 +132,37 @@ export default async function Dashboard() {
           <ScanNowButton />
         </div>
       </section>
+
+      {lastScan && (
+        <section className="card">
+          <h2>Last scan</h2>
+          <div className="meta">Ran {new Date(lastScan.scannedAt).toLocaleString()}</div>
+          <table>
+            <thead>
+              <tr>
+                <th>Source</th>
+                <th>Status</th>
+                <th>API events</th>
+                <th>Matched</th>
+                <th>Prices</th>
+              </tr>
+            </thead>
+            <tbody>
+              {lastScan.sources.map((source) => (
+                <tr key={source.source}>
+                  <td>{SOURCE_LABEL[source.source] ?? source.source}</td>
+                  <td className={source.ok ? "" : "bad"}>
+                    {source.ok ? source.note ?? "OK" : source.error ?? "Failed"}
+                  </td>
+                  <td>{source.candidatesFound}</td>
+                  <td>{source.eventsMatched}</td>
+                  <td>{source.listingsFound}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </section>
+      )}
 
       <section className="card">
         <h2>Price history (lowest per scan)</h2>

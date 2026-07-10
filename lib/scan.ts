@@ -6,7 +6,15 @@ export type ScanSummary = {
   event: string;
   scannedAt: string;
   targetPrice: number;
-  sources: { source: string; ok: boolean; error?: string; eventsMatched: number; listingsFound: number }[];
+  sources: {
+    source: string;
+    ok: boolean;
+    error?: string;
+    note?: string;
+    candidatesFound: number;
+    eventsMatched: number;
+    listingsFound: number;
+  }[];
   snapshotsStored: number;
   belowTarget: { source: string; listing: string; price: number; url: string | null }[];
   alertsSent: number;
@@ -37,6 +45,17 @@ export async function getTargetPrice(): Promise<number> {
 
 export async function setTargetPrice(price: number): Promise<void> {
   await setConfigValue("target_price", String(price));
+}
+
+export async function getLastScanSummary(): Promise<ScanSummary | null> {
+  const db = supabaseAdmin();
+  const { data } = await db.from("app_config").select("value").eq("key", "last_scan_summary").maybeSingle();
+  if (!data?.value) return null;
+  try {
+    return JSON.parse(data.value) as ScanSummary;
+  } catch {
+    return null;
+  }
 }
 
 export async function runScan(): Promise<ScanSummary> {
@@ -102,7 +121,7 @@ export async function runScan(): Promise<ScanSummary> {
     alertsSent++;
   }
 
-  return {
+  const summary = {
     event: EVENT.name,
     scannedAt,
     targetPrice,
@@ -110,6 +129,8 @@ export async function runScan(): Promise<ScanSummary> {
       source: r.source,
       ok: r.ok,
       error: r.error,
+      note: r.note,
+      candidatesFound: r.candidatesFound,
       eventsMatched: r.eventsMatched,
       listingsFound: r.listings.length,
     })),
@@ -118,6 +139,9 @@ export async function runScan(): Promise<ScanSummary> {
     alertsSent,
     alertsSkippedAsDuplicates: alertsSkipped,
   };
+
+  await setConfigValue("last_scan_summary", JSON.stringify(summary));
+  return summary;
 }
 
 async function safeSource(
@@ -131,6 +155,7 @@ async function safeSource(
       source,
       ok: false,
       error: err instanceof Error ? err.message : String(err),
+      candidatesFound: 0,
       eventsMatched: 0,
       listings: [],
     };
